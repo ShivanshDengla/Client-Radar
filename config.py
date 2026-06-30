@@ -75,7 +75,6 @@ class Config:
     discord_webhook_url: str
     subreddits: list[str] = field(default_factory=list)
     post_fetch_limit: int = 25
-    poll_interval_seconds: int = 300
     database_path: str = "seen_posts.db"
     user_agent: str = "ClientRadar/1.0 (anonymous RSS monitor; no Reddit account)"
     rss_batch_size: int = 3
@@ -89,7 +88,6 @@ def load_config() -> Config:
         discord_webhook_url=_require("DISCORD_WEBHOOK_URL"),
         subreddits=_get_subreddits(),
         post_fetch_limit=_get_int("POST_FETCH_LIMIT", 25),
-        poll_interval_seconds=_get_int("POLL_INTERVAL_SECONDS", 300),
         database_path=os.getenv("DATABASE_PATH", "seen_posts.db").strip()
         or "seen_posts.db",
         user_agent=os.getenv("USER_AGENT", "").strip()

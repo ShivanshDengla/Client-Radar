@@ -1,25 +1,20 @@
 """
 main.py
 -------
-The entry point. Ties every module together into a simple loop:
+Manual trigger only. Each time you run this, it:
 
-    while True:
-        1. fetch newest posts from Reddit
-        2. skip ones we've already seen (SQLite)
-        3. check each new post with the matcher
-        4. send matches to Discord
-        5. remember every post we processed so we never repeat
-        6. sleep, then do it again
+    1. Fetches the newest posts from Reddit (anonymous RSS)
+    2. Skips posts already seen in SQLite (from your last run)
+    3. Sends new matches to Discord
+    4. Remembers every post checked so you never get duplicates
 
-Run it with:   python main.py
-Run a single test pass with:   python main.py --once
-Verbose (show why posts were skipped):   python main.py --once --verbose
-Test Discord only:   python main.py --test-discord
-Stop it any time with Ctrl+C.
+Usage:
+    python main.py              # scan once (normal use)
+    python main.py --verbose    # scan + show why posts were skipped
+    python main.py --test-discord   # test webhook only
 """
 
 import sys
-import time
 from datetime import datetime, timezone
 
 from config import load_config, ConfigError
@@ -30,13 +25,11 @@ from reddit_client import RedditClient
 
 
 def _log(message: str) -> None:
-    """Print a timestamped log line."""
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{stamp}] {message}")
 
 
 def test_discord(discord: DiscordNotifier) -> None:
-    """Send one fake post to Discord so you can verify the webhook works."""
     from reddit_client import RedditPost
 
     post = RedditPost(
@@ -57,21 +50,25 @@ def test_discord(discord: DiscordNotifier) -> None:
         sys.exit(1)
 
 
-def run_one_pass(
+def run_scan(
     reddit: RedditClient,
     db: SeenPostsDB,
     discord: DiscordNotifier,
+    *,
     verbose: bool = False,
     send_status: bool = True,
     subreddits: list[str] | None = None,
-) -> None:
-    """Do a single fetch-check-notify cycle."""
+) -> int:
+    """Fetch new posts since last run, notify Discord, return match count."""
     posts = reddit.fetch_new_posts()
+    # Newest first — fresh morning posts get checked and sent first.
+    posts.sort(key=lambda p: p.created_utc, reverse=True)
+
     already_seen = sum(1 for p in posts if db.has_seen(p.id))
     new_to_check = len(posts) - already_seen
     _log(
         f"Fetched {len(posts)} posts from Reddit "
-        f"({already_seen} already in database, {new_to_check} new to check)."
+        f"({already_seen} already seen, {new_to_check} new since last run)."
     )
 
     new_count = 0
@@ -79,7 +76,6 @@ def run_one_pass(
     skip_count = 0
 
     for post in posts:
-        # Already handled this post in a previous run? Skip immediately.
         if db.has_seen(post.id):
             continue
 
@@ -97,18 +93,17 @@ def run_one_pass(
         else:
             skip_count += 1
             if verbose:
-                reason = result.reject_reason or "no hiring intent / not dev-related"
+                reason = result.reject_reason or "not a hiring post for your profile"
                 _log(f"SKIP r/{post.subreddit}: {post.title[:70]!r} — {reason}")
 
-        # Whether it matched or not, mark it seen so we never reprocess it.
         db.mark_seen(post.id, post.subreddit, post.title)
 
     _log(
-        f"Pass complete. New posts: {new_count}, matches: {match_count}, "
+        f"Done. New posts checked: {new_count}, matches sent: {match_count}, "
         f"skipped: {skip_count}."
     )
     if new_count > 0 and match_count == 0 and not verbose:
-        _log("Tip: run with --verbose to see why each post was skipped.")
+        _log("No matches this run. Use --verbose to see why posts were skipped.")
 
     if send_status:
         sent = discord.send_scan_status(
@@ -120,13 +115,14 @@ def run_one_pass(
             subreddits=subreddits or reddit.subreddits,
         )
         if sent:
-            _log("Status ping sent to Discord.")
+            _log("Summary sent to Discord.")
         else:
-            _log("Status ping FAILED to send to Discord.")
+            _log("Summary failed to send to Discord.")
+
+    return match_count
 
 
 def main() -> None:
-    run_once = "--once" in sys.argv
     test_only = "--test-discord" in sys.argv
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
 
@@ -139,47 +135,25 @@ def main() -> None:
     discord = DiscordNotifier(config.discord_webhook_url)
 
     if test_only:
-        _log("Sending a test message to Discord (no Reddit fetch).")
+        _log("Testing Discord webhook (no Reddit fetch).")
         test_discord(discord)
         return
 
     db = SeenPostsDB(config.database_path)
     reddit = RedditClient(config)
 
-    _log("Reddit Client Radar starting up (anonymous RSS — no Reddit account).")
-    _log(f"Monitoring subreddits: {', '.join(config.subreddits)}")
+    _log("Client Radar — manual scan starting.")
+    _log(f"Subreddits: {', '.join(config.subreddits)}")
+    _log(f"Posts in memory: {db.count()} (from previous runs)")
 
-    if run_once:
-        _log("Running a single pass (--once), then exiting.")
-        run_one_pass(
-            reddit,
-            db,
-            discord,
-            verbose=verbose,
-            send_status=config.send_status_to_discord,
-            subreddits=config.subreddits,
-        )
-        return
-
-    _log(f"Checking every {config.poll_interval_seconds} seconds. Press Ctrl+C to stop.")
-    try:
-        while True:
-            try:
-                run_one_pass(
-                    reddit,
-                    db,
-                    discord,
-                    verbose=verbose,
-                    send_status=config.send_status_to_discord,
-                    subreddits=config.subreddits,
-                )
-            except Exception as exc:  # noqa: BLE001 - keep the loop alive
-                # Any unexpected error in a single pass is logged but does not
-                # kill the program; we just wait and try again.
-                _log(f"Unexpected error during pass: {exc}")
-            time.sleep(config.poll_interval_seconds)
-    except KeyboardInterrupt:
-        _log("Stopped by user. Goodbye!")
+    run_scan(
+        reddit,
+        db,
+        discord,
+        verbose=verbose,
+        send_status=config.send_status_to_discord,
+        subreddits=config.subreddits,
+    )
 
 
 if __name__ == "__main__":
