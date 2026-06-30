@@ -51,7 +51,7 @@ PROFILE_KEYWORDS: dict[str, list[str]] = {
 NON_DEV_ROLES = [
     "graphic designer", "graphics designer", "ux designer", "ui designer",
     "ui/ux", "ux/ui", "video editor", "video editing", "virtual assistant",
-    "va ", "seo specialist", "seo expert", "copywriter", "content writer",
+    "va ","copywriter", "content writer",
     "social media manager", "marketing manager", "legal opinion", "lawyer",
     "accountant", "bookkeeper", "transcription", "data entry", "moderator",
     "community manager", "illustrator", "3d artist", "animator",

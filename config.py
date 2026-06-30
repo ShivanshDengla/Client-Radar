@@ -29,6 +29,16 @@ def _require(name: str) -> str:
     return value
 
 
+def _get_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        raise ConfigError(f"Setting '{name}' must be a number, got '{raw}'.")
+
+
 def _get_int(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -61,6 +71,8 @@ class Config:
     poll_interval_seconds: int = 300
     database_path: str = "seen_posts.db"
     user_agent: str = "ClientRadar/1.0 (anonymous RSS monitor; no Reddit account)"
+    rss_batch_size: int = 3
+    request_delay_seconds: float = 3.0
 
 
 def load_config() -> Config:
@@ -74,4 +86,6 @@ def load_config() -> Config:
         or "seen_posts.db",
         user_agent=os.getenv("USER_AGENT", "").strip()
         or "ClientRadar/1.0 (anonymous RSS monitor; no Reddit account)",
+        rss_batch_size=_get_int("RSS_BATCH_SIZE", 3),
+        request_delay_seconds=_get_float("REQUEST_DELAY_SECONDS", 3.0),
     )

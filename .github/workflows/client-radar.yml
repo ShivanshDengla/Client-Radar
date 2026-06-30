@@ -1,22 +1,30 @@
-# Free hosting: runs one scan every 10 minutes using GitHub Actions.
-# Works on public repos with unlimited minutes. Private repos: 2,000 min/month free.
+# Runs Client Radar on a schedule via GitHub Actions.
 #
-# Setup:
-#   1. Push this repo to GitHub
-#   2. Repo -> Settings -> Secrets -> Actions -> New secret
-#      Name: DISCORD_WEBHOOK_URL   Value: your webhook URL
-#   3. Actions tab -> enable workflows -> run should appear every ~10 min
+# Setup: add DISCORD_WEBHOOK_URL in repo Settings → Secrets → Actions.
+#
+# Schedule note: GitHub may delay cron runs by 5–30 min on free accounts.
+# Runs alternate subreddit groups so each run is fast and avoids Reddit 429s.
 
 name: Client Radar
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    # Every 15 minutes (UTC). Off-peak minutes to reduce GitHub queue delays.
+    - cron: "3,18,33,48 * * * *"
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-radar
+  cancel-in-progress: false
 
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 6
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -35,10 +43,26 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Pick subreddit group for this run
+        id: subs
+        run: |
+          # Alternate groups each run so we cover everything without rate limits.
+          if [ $(( ${{ github.run_number }} % 2 )) -eq 0 ]; then
+            echo "list=forhire,jobbit,slavelabour,freelance_forhire,DoneDirtCheap,FreelanceProgramming,hireaprogrammer" >> "$GITHUB_OUTPUT"
+            echo "group=hiring boards" >> "$GITHUB_OUTPUT"
+          else
+            echo "list=AppDevelopers,webdev,reactjs,nextjs,flutterdev,iOSProgramming,androiddev" >> "$GITHUB_OUTPUT"
+            echo "group=dev communities" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run one scan
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          SUBREDDITS: forhire,jobbit,slavelabour,freelance_forhire,DoneDirtCheap,FreelanceProgramming,hireaprogrammer,AppDevelopers,webdev,reactjs,nextjs,flutterdev,iOSProgramming,androiddev,node,django,rails
+          SUBREDDITS: ${{ steps.subs.outputs.list }}
           POST_FETCH_LIMIT: "25"
           DATABASE_PATH: seen_posts.db
-        run: python main.py --once
+          RSS_BATCH_SIZE: "2"
+          REQUEST_DELAY_SECONDS: "4"
+        run: |
+          echo "Scanning subreddit group: ${{ steps.subs.outputs.group }}"
+          python main.py --once --verbose

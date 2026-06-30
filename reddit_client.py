@@ -24,10 +24,7 @@ from config import Config
 ATOM_NS = {"a": "http://www.w3.org/2005/Atom"}
 # Reddit asks automated clients to identify themselves. This is NOT a login.
 DEFAULT_USER_AGENT = "ClientRadar/1.0 (anonymous RSS monitor; no Reddit account)"
-# Fetch subreddits in small batches so long lists don't break one giant RSS URL.
-RSS_BATCH_SIZE = 5
-REQUEST_DELAY_SECONDS = 2.5
-RETRY_WAIT_SECONDS = 12
+RETRY_WAIT_SECONDS = 15
 MAX_RETRIES = 2
 
 
@@ -135,6 +132,8 @@ class RedditClient:
         self.subreddits = config.subreddits
         self.fetch_limit = config.post_fetch_limit
         self.user_agent = config.user_agent
+        self.batch_size = config.rss_batch_size
+        self.request_delay = config.request_delay_seconds
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": self.user_agent})
 
@@ -151,6 +150,8 @@ class RedditClient:
                 if response.status_code == 429:
                     wait = RETRY_WAIT_SECONDS * (attempt + 1)
                     print(f"[reddit] Rate limited (429). Waiting {wait}s before retry...")
+                    if attempt >= MAX_RETRIES:
+                        response.raise_for_status()
                     time.sleep(wait)
                     continue
                 response.raise_for_status()
@@ -169,21 +170,21 @@ class RedditClient:
         raise last_error or requests.RequestException("RSS fetch failed")
 
     def _fetch_batch(self, subreddit_names: list[str]) -> list[RedditPost]:
-        """Fetch one batch; on non-rate-limit errors, try each sub slowly."""
-        url = self._rss_url(subreddit_names)
+        """Fetch one batch. On rate limit, skip (do not hammer Reddit one-by-one)."""
         try:
-            return self._fetch_feed(url)
+            return self._fetch_feed(self._rss_url(subreddit_names))
         except requests.HTTPError as exc:
             if exc.response is not None and exc.response.status_code == 429:
-                print(f"[reddit] Still rate limited for batch {subreddit_names}. Skipping for now.")
+                names = ", ".join(f"r/{s}" for s in subreddit_names)
+                print(f"[reddit] Rate limited — skipping batch ({names})")
                 return []
-            print(f"[reddit] Batch RSS failed ({exc}). Trying subs one-by-one (slow).")
+            print(f"[reddit] Batch failed ({exc}) — trying subs one at a time.")
         except requests.RequestException as exc:
-            print(f"[reddit] Batch RSS failed ({exc}). Trying subs one-by-one (slow).")
+            print(f"[reddit] Batch failed ({exc}) — trying subs one at a time.")
 
         posts: list[RedditPost] = []
         for sub_name in subreddit_names:
-            time.sleep(REQUEST_DELAY_SECONDS)
+            time.sleep(self.request_delay)
             try:
                 posts.extend(self._fetch_feed(self._rss_url([sub_name])))
             except requests.RequestException as sub_exc:
@@ -193,8 +194,6 @@ class RedditClient:
     def fetch_new_posts(self) -> list[RedditPost]:
         """
         Pull newest posts from configured subreddits via public RSS.
-
-        Fetches in small batches (polite to Reddit, works with long sub lists).
         """
         posts: list[RedditPost] = []
         seen_ids: set[str] = set()
@@ -206,11 +205,11 @@ class RedditClient:
                 seen_ids.add(post.id)
                 posts.append(post)
 
-        for i in range(0, len(self.subreddits), RSS_BATCH_SIZE):
-            chunk = self.subreddits[i : i + RSS_BATCH_SIZE]
+        for i in range(0, len(self.subreddits), self.batch_size):
+            chunk = self.subreddits[i : i + self.batch_size]
             add_posts(self._fetch_batch(chunk))
-            if i + RSS_BATCH_SIZE < len(self.subreddits):
-                time.sleep(REQUEST_DELAY_SECONDS)
+            if i + self.batch_size < len(self.subreddits):
+                time.sleep(self.request_delay)
 
         posts.sort(key=lambda p: p.created_utc)
         return posts

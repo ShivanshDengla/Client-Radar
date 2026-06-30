@@ -65,7 +65,12 @@ def run_one_pass(
 ) -> None:
     """Do a single fetch-check-notify cycle."""
     posts = reddit.fetch_new_posts()
-    _log(f"Fetched {len(posts)} posts. (Known so far: {db.count()})")
+    already_seen = sum(1 for p in posts if db.has_seen(p.id))
+    new_to_check = len(posts) - already_seen
+    _log(
+        f"Fetched {len(posts)} posts from Reddit "
+        f"({already_seen} already in database, {new_to_check} new to check)."
+    )
 
     new_count = 0
     match_count = 0
