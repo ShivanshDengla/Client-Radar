@@ -48,7 +48,7 @@ def test_discord(discord: DiscordNotifier) -> None:
         url="https://www.reddit.com/r/forhire/",
         created_utc=datetime.now(timezone.utc).timestamp() - 120,
     )
-    result = analyze(post.title, post.body, post.flair)
+    result = analyze(post.title, post.body, post.flair, post.subreddit)
     sent = discord.send(post, result)
     if sent:
         _log("Test message sent to Discord. Check your channel!")
@@ -77,7 +77,7 @@ def run_one_pass(
             continue
 
         new_count += 1
-        result = analyze(post.title, post.body, post.flair)
+        result = analyze(post.title, post.body, post.flair, post.subreddit)
 
         if result.is_match:
             match_count += 1
