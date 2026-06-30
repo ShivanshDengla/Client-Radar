@@ -1,0 +1,24 @@
+# Deploy on Render: https://render.com
+# 1. Push this repo to GitHub
+# 2. Render Dashboard -> New -> Blueprint -> connect repo
+# 3. Set DISCORD_WEBHOOK_URL in the Render dashboard (Environment)
+services:
+  - type: worker
+    name: client-radar
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: DISCORD_WEBHOOK_URL
+        sync: false
+      - key: SUBREDDITS
+        value: forhire,jobbit,slavelabour,freelance_forhire,DoneDirtCheap
+      - key: POST_FETCH_LIMIT
+        value: "25"
+      - key: POLL_INTERVAL_SECONDS
+        value: "300"
+      - key: DATABASE_PATH
+        value: seen_posts.db
+      - key: USER_AGENT
+        value: ClientRadar/1.0 (anonymous RSS monitor; no Reddit account)
