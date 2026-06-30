@@ -13,6 +13,7 @@ The entry point. Ties every module together into a simple loop:
 
 Run it with:   python main.py
 Run a single test pass with:   python main.py --once
+Verbose (show why posts were skipped):   python main.py --once --verbose
 Test Discord only:   python main.py --test-discord
 Stop it any time with Ctrl+C.
 """
@@ -56,13 +57,19 @@ def test_discord(discord: DiscordNotifier) -> None:
         sys.exit(1)
 
 
-def run_one_pass(reddit: RedditClient, db: SeenPostsDB, discord: DiscordNotifier) -> None:
+def run_one_pass(
+    reddit: RedditClient,
+    db: SeenPostsDB,
+    discord: DiscordNotifier,
+    verbose: bool = False,
+) -> None:
     """Do a single fetch-check-notify cycle."""
     posts = reddit.fetch_new_posts()
     _log(f"Fetched {len(posts)} posts. (Known so far: {db.count()})")
 
     new_count = 0
     match_count = 0
+    skip_count = 0
 
     for post in posts:
         # Already handled this post in a previous run? Skip immediately.
@@ -80,18 +87,27 @@ def run_one_pass(reddit: RedditClient, db: SeenPostsDB, discord: DiscordNotifier
                 f"MATCH [{result.primary_type}] r/{post.subreddit}: "
                 f"{post.title[:70]!r} -> {status}"
             )
+        else:
+            skip_count += 1
+            if verbose:
+                reason = result.reject_reason or "no hiring intent / not dev-related"
+                _log(f"SKIP r/{post.subreddit}: {post.title[:70]!r} — {reason}")
 
         # Whether it matched or not, mark it seen so we never reprocess it.
-        # (If a Discord send failed we still mark it; to retry instead, you
-        #  could move this line inside the `if sent:` block above.)
         db.mark_seen(post.id, post.subreddit, post.title)
 
-    _log(f"Pass complete. New posts: {new_count}, matches: {match_count}.")
+    _log(
+        f"Pass complete. New posts: {new_count}, matches: {match_count}, "
+        f"skipped: {skip_count}."
+    )
+    if new_count > 0 and match_count == 0 and not verbose:
+        _log("Tip: run with --verbose to see why each post was skipped.")
 
 
 def main() -> None:
     run_once = "--once" in sys.argv
     test_only = "--test-discord" in sys.argv
+    verbose = "--verbose" in sys.argv or "-v" in sys.argv
 
     try:
         config = load_config()
@@ -114,14 +130,14 @@ def main() -> None:
 
     if run_once:
         _log("Running a single pass (--once), then exiting.")
-        run_one_pass(reddit, db, discord)
+        run_one_pass(reddit, db, discord, verbose=verbose)
         return
 
     _log(f"Checking every {config.poll_interval_seconds} seconds. Press Ctrl+C to stop.")
     try:
         while True:
             try:
-                run_one_pass(reddit, db, discord)
+                run_one_pass(reddit, db, discord, verbose=verbose)
             except Exception as exc:  # noqa: BLE001 - keep the loop alive
                 # Any unexpected error in a single pass is logged but does not
                 # kill the program; we just wait and try again.

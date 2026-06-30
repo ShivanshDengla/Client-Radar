@@ -24,6 +24,11 @@ from config import Config
 ATOM_NS = {"a": "http://www.w3.org/2005/Atom"}
 # Reddit asks automated clients to identify themselves. This is NOT a login.
 DEFAULT_USER_AGENT = "ClientRadar/1.0 (anonymous RSS monitor; no Reddit account)"
+# Fetch subreddits in small batches so long lists don't break one giant RSS URL.
+RSS_BATCH_SIZE = 5
+REQUEST_DELAY_SECONDS = 2.5
+RETRY_WAIT_SECONDS = 12
+MAX_RETRIES = 2
 
 
 @dataclass
@@ -139,23 +144,57 @@ class RedditClient:
         return f"https://www.reddit.com/r/{joined}/new/.rss?{query}"
 
     def _fetch_feed(self, url: str) -> list[RedditPost]:
-        response = self.session.get(url, timeout=20)
-        response.raise_for_status()
+        last_error: Exception | None = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                response = self.session.get(url, timeout=20)
+                if response.status_code == 429:
+                    wait = RETRY_WAIT_SECONDS * (attempt + 1)
+                    print(f"[reddit] Rate limited (429). Waiting {wait}s before retry...")
+                    time.sleep(wait)
+                    continue
+                response.raise_for_status()
 
-        root = ET.fromstring(response.content)
+                root = ET.fromstring(response.content)
+                posts: list[RedditPost] = []
+                for entry in root.findall("a:entry", ATOM_NS):
+                    post = _entry_to_post(entry)
+                    if post is not None:
+                        posts.append(post)
+                return posts
+            except requests.RequestException as exc:
+                last_error = exc
+                if attempt < MAX_RETRIES:
+                    time.sleep(RETRY_WAIT_SECONDS)
+        raise last_error or requests.RequestException("RSS fetch failed")
+
+    def _fetch_batch(self, subreddit_names: list[str]) -> list[RedditPost]:
+        """Fetch one batch; on non-rate-limit errors, try each sub slowly."""
+        url = self._rss_url(subreddit_names)
+        try:
+            return self._fetch_feed(url)
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 429:
+                print(f"[reddit] Still rate limited for batch {subreddit_names}. Skipping for now.")
+                return []
+            print(f"[reddit] Batch RSS failed ({exc}). Trying subs one-by-one (slow).")
+        except requests.RequestException as exc:
+            print(f"[reddit] Batch RSS failed ({exc}). Trying subs one-by-one (slow).")
+
         posts: list[RedditPost] = []
-        for entry in root.findall("a:entry", ATOM_NS):
-            post = _entry_to_post(entry)
-            if post is not None:
-                posts.append(post)
+        for sub_name in subreddit_names:
+            time.sleep(REQUEST_DELAY_SECONDS)
+            try:
+                posts.extend(self._fetch_feed(self._rss_url([sub_name])))
+            except requests.RequestException as sub_exc:
+                print(f"[reddit] Could not read r/{sub_name}: {sub_exc}")
         return posts
 
     def fetch_new_posts(self) -> list[RedditPost]:
         """
         Pull newest posts from configured subreddits via public RSS.
 
-        Tries one combined feed first (fewer requests). Falls back to per-subreddit
-        feeds if the combined URL fails.
+        Fetches in small batches (polite to Reddit, works with long sub lists).
         """
         posts: list[RedditPost] = []
         seen_ids: set[str] = set()
@@ -167,16 +206,11 @@ class RedditClient:
                 seen_ids.add(post.id)
                 posts.append(post)
 
-        combined_url = self._rss_url(self.subreddits)
-        try:
-            add_posts(self._fetch_feed(combined_url))
-        except Exception as exc:  # noqa: BLE001 - fall back per subreddit
-            print(f"[reddit] Combined RSS feed failed ({exc}). Trying one-by-one.")
-            for sub_name in self.subreddits:
-                try:
-                    add_posts(self._fetch_feed(self._rss_url([sub_name])))
-                except Exception as sub_exc:  # noqa: BLE001
-                    print(f"[reddit] Could not read r/{sub_name}: {sub_exc}")
+        for i in range(0, len(self.subreddits), RSS_BATCH_SIZE):
+            chunk = self.subreddits[i : i + RSS_BATCH_SIZE]
+            add_posts(self._fetch_batch(chunk))
+            if i + RSS_BATCH_SIZE < len(self.subreddits):
+                time.sleep(REQUEST_DELAY_SECONDS)
 
         posts.sort(key=lambda p: p.created_utc)
         return posts

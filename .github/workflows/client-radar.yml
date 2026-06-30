@@ -1,0 +1,44 @@
+# Free hosting: runs one scan every 10 minutes using GitHub Actions.
+# Works on public repos with unlimited minutes. Private repos: 2,000 min/month free.
+#
+# Setup:
+#   1. Push this repo to GitHub
+#   2. Repo -> Settings -> Secrets -> Actions -> New secret
+#      Name: DISCORD_WEBHOOK_URL   Value: your webhook URL
+#   3. Actions tab -> enable workflows -> run should appear every ~10 min
+
+name: Client Radar
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore seen-posts database
+        uses: actions/cache@v4
+        with:
+          path: seen_posts.db
+          key: seen-posts-${{ github.repository }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run one scan
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SUBREDDITS: forhire,jobbit,slavelabour,freelance_forhire,DoneDirtCheap,FreelanceProgramming,hireaprogrammer,AppDevelopers,webdev,web_design,reactjs,nextjs,flutterdev,iOSProgramming,androiddev,node,rails,django,Wordpress,Shopify,startups,Entrepreneur,smallbusiness,SaaS
+          POST_FETCH_LIMIT: "25"
+          DATABASE_PATH: seen_posts.db
+        run: python main.py --once

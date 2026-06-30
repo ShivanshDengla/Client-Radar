@@ -95,16 +95,44 @@ Checks every 5 minutes. Press **Ctrl+C** to stop.
 
 ## Part 3 — Deploy online (keep it running 24/7)
 
-### Why not Vercel?
-Vercel is built for websites, not long-running bots. This app needs to:
-- Run every 5 minutes forever
-- Save a SQLite database between runs
+### Is Render free?
 
-**Render** is the better fit — it runs a background worker that stays on.
+**Not for this bot.** Render's Hobby plan is **$0/month for the workspace**, but that's only the account fee. Background workers (what we need) require a **paid compute instance**:
 
-Cost: Render Starter worker is about **$7/month**. There is no good free always-on option for Python bots in 2026.
+| What | Cost |
+|------|------|
+| Render Hobby workspace | $0/month |
+| Background Worker (Starter) | **~$7/month** |
+| Free web services on Render | Yes, but they **spin down** after inactivity — bad for a polling bot |
 
-### Deploy to Render (recommended)
+So Render is great when you're ready to pay ~$7/mo. For personal use, use the **free option below**.
+
+---
+
+### Option A — GitHub Actions (FREE, recommended for personal use)
+
+Runs one scan every **10 minutes** automatically. No server to manage.
+
+**Limits:** GitHub may delay scheduled runs by a few minutes. On **private** repos you get 2,000 free minutes/month (plenty for this). **Public** repos get unlimited minutes.
+
+#### Setup
+1. Push your code to GitHub (make sure `.env` is NOT committed — it's in `.gitignore`).
+2. On GitHub → your repo → **Settings** → **Secrets and variables** → **Actions**.
+3. Click **New repository secret**:
+   - Name: `DISCORD_WEBHOOK_URL`
+   - Value: your Discord webhook URL
+4. Go to the **Actions** tab → enable workflows if prompted.
+5. Click **Client Radar** → **Run workflow** to test immediately.
+
+After that it runs automatically every ~10 minutes. The workflow file is already in `.github/workflows/client-radar.yml`.
+
+To change subreddits when using GitHub Actions, edit the `SUBREDDITS` line in that workflow file.
+
+---
+
+### Option B — Render (~$7/month, when you want always-on)
+
+Better if you need exact 5-minute intervals and don't want to rely on GitHub's scheduler.
 
 #### Step 1 — Push code to GitHub
 ```bash
@@ -121,32 +149,40 @@ git push -u origin main
 ```
 
 #### Step 2 — Create a Render account
-1. Go to [render.com](https://render.com) and sign up (free account is fine).
+1. Go to [render.com](https://render.com) and sign up.
 2. Connect your GitHub account.
 
 #### Step 3 — Deploy with Blueprint
-1. In Render dashboard → **New** → **Blueprint**.
-2. Connect your `client-radar` GitHub repo.
-3. Render reads `render.yaml` automatically.
-4. Before deploying, set the secret:
-   - Find `DISCORD_WEBHOOK_URL` → click **Add value** → paste your webhook URL.
-5. Click **Apply**.
+1. Render dashboard → **New** → **Blueprint**.
+2. Connect your `client-radar` repo.
+3. Set `DISCORD_WEBHOOK_URL` when prompted.
+4. Click **Apply** (~$7/mo Starter worker).
 
-Render will build and start a **Background Worker** running `python main.py`.
+#### Step 4 — Verify
+Check **Logs** in Render for fetch messages. Matches appear in Discord automatically.
 
-#### Step 4 — Verify it's live
-1. In Render → your service → **Logs**.
-2. You should see lines like:
-   ```
-   Reddit Client Radar starting up (anonymous RSS — no Reddit account).
-   Fetched 25 posts. (Known so far: 0)
-   ```
-3. When a match is found, it appears in Discord automatically.
+---
 
-#### Step 5 — Change settings later
-In Render → **Environment**, you can edit:
-- `SUBREDDITS` — which communities to watch
-- `POLL_INTERVAL_SECONDS` — how often to check (default 300 = 5 min)
+### Option C — Run on your Mac (free, but only while it's on)
+
+```bash
+python main.py
+```
+
+Stops when you close the laptop or quit the terminal. Fine for testing, not true 24/7.
+
+---
+
+## Subreddits we monitor (24 communities)
+
+| Category | Subreddits |
+|----------|------------|
+| Hiring / freelance boards | `forhire`, `jobbit`, `slavelabour`, `freelance_forhire`, `DoneDirtCheap`, `FreelanceProgramming`, `hireaprogrammer` |
+| Web / app dev | `AppDevelopers`, `webdev`, `web_design`, `reactjs`, `nextjs`, `node`, `rails`, `django`, `Wordpress`, `Shopify` |
+| Mobile | `flutterdev`, `iOSProgramming`, `androiddev` |
+| Startups / business | `startups`, `Entrepreneur`, `smallbusiness`, `SaaS` |
+
+Edit `SUBREDDITS` in your `.env` to add or remove any. Separate names with commas, no `r/` prefix.
 
 ---
 

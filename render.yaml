@@ -1,7 +1,5 @@
-# Deploy on Render: https://render.com
-# 1. Push this repo to GitHub
-# 2. Render Dashboard -> New -> Blueprint -> connect repo
-# 3. Set DISCORD_WEBHOOK_URL in the Render dashboard (Environment)
+# Paid hosting on Render (~$7/mo). For FREE hosting use GitHub Actions instead
+# (see .github/workflows/client-radar.yml and README).
 services:
   - type: worker
     name: client-radar
@@ -13,7 +11,7 @@ services:
       - key: DISCORD_WEBHOOK_URL
         sync: false
       - key: SUBREDDITS
-        value: forhire,jobbit,slavelabour,freelance_forhire,DoneDirtCheap
+        value: forhire,jobbit,slavelabour,freelance_forhire,DoneDirtCheap,FreelanceProgramming,hireaprogrammer,AppDevelopers,webdev,web_design,reactjs,nextjs,flutterdev,iOSProgramming,androiddev,node,rails,django,Wordpress,Shopify,startups,Entrepreneur,smallbusiness,SaaS
       - key: POST_FETCH_LIMIT
         value: "25"
       - key: POLL_INTERVAL_SECONDS
