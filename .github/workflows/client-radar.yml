@@ -63,6 +63,7 @@ jobs:
           DATABASE_PATH: seen_posts.db
           RSS_BATCH_SIZE: "2"
           REQUEST_DELAY_SECONDS: "4"
+          SEND_STATUS_TO_DISCORD: "true"
         run: |
           echo "Scanning subreddit group: ${{ steps.subs.outputs.group }}"
           python main.py --once --verbose

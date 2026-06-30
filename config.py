@@ -49,6 +49,13 @@ def _get_int(name: str, default: int) -> int:
         raise ConfigError(f"Setting '{name}' must be a whole number, got '{raw}'.")
 
 
+def _get_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
 def _get_subreddits() -> list[str]:
     raw = os.getenv("SUBREDDITS", "").strip()
     if not raw:
@@ -73,6 +80,7 @@ class Config:
     user_agent: str = "ClientRadar/1.0 (anonymous RSS monitor; no Reddit account)"
     rss_batch_size: int = 3
     request_delay_seconds: float = 3.0
+    send_status_to_discord: bool = True
 
 
 def load_config() -> Config:
@@ -88,4 +96,5 @@ def load_config() -> Config:
         or "ClientRadar/1.0 (anonymous RSS monitor; no Reddit account)",
         rss_batch_size=_get_int("RSS_BATCH_SIZE", 3),
         request_delay_seconds=_get_float("REQUEST_DELAY_SECONDS", 3.0),
+        send_status_to_discord=_get_bool("SEND_STATUS_TO_DISCORD", True),
     )

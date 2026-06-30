@@ -62,6 +62,8 @@ def run_one_pass(
     db: SeenPostsDB,
     discord: DiscordNotifier,
     verbose: bool = False,
+    send_status: bool = True,
+    subreddits: list[str] | None = None,
 ) -> None:
     """Do a single fetch-check-notify cycle."""
     posts = reddit.fetch_new_posts()
@@ -108,6 +110,20 @@ def run_one_pass(
     if new_count > 0 and match_count == 0 and not verbose:
         _log("Tip: run with --verbose to see why each post was skipped.")
 
+    if send_status:
+        sent = discord.send_scan_status(
+            fetched=len(posts),
+            already_seen=already_seen,
+            new_checked=new_count,
+            matches=match_count,
+            skipped=skip_count,
+            subreddits=subreddits or reddit.subreddits,
+        )
+        if sent:
+            _log("Status ping sent to Discord.")
+        else:
+            _log("Status ping FAILED to send to Discord.")
+
 
 def main() -> None:
     run_once = "--once" in sys.argv
@@ -135,14 +151,28 @@ def main() -> None:
 
     if run_once:
         _log("Running a single pass (--once), then exiting.")
-        run_one_pass(reddit, db, discord, verbose=verbose)
+        run_one_pass(
+            reddit,
+            db,
+            discord,
+            verbose=verbose,
+            send_status=config.send_status_to_discord,
+            subreddits=config.subreddits,
+        )
         return
 
     _log(f"Checking every {config.poll_interval_seconds} seconds. Press Ctrl+C to stop.")
     try:
         while True:
             try:
-                run_one_pass(reddit, db, discord, verbose=verbose)
+                run_one_pass(
+                    reddit,
+                    db,
+                    discord,
+                    verbose=verbose,
+                    send_status=config.send_status_to_discord,
+                    subreddits=config.subreddits,
+                )
             except Exception as exc:  # noqa: BLE001 - keep the loop alive
                 # Any unexpected error in a single pass is logged but does not
                 # kill the program; we just wait and try again.

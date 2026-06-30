@@ -13,8 +13,10 @@ import requests
 from matcher import MatchResult
 from reddit_client import RedditPost
 
-# Discord colors are integers. This is a pleasant blue. (0x5865F2 = Discord blurple)
-EMBED_COLOR = 0x5865F2
+# Discord colors (integers)
+EMBED_COLOR = 0x5865F2       # blurple — client post alerts
+STATUS_OK_COLOR = 0x57F287   # green — scan ran, no matches
+STATUS_HIT_COLOR = 0xFEE75C  # yellow — scan ran, found matches
 
 
 class DiscordNotifier:
@@ -63,4 +65,58 @@ class DiscordNotifier:
             return False
         except requests.RequestException as exc:
             print(f"[discord] Failed to send message: {exc}")
+            return False
+
+    def send_scan_status(
+        self,
+        *,
+        fetched: int,
+        already_seen: int,
+        new_checked: int,
+        matches: int,
+        skipped: int,
+        subreddits: list[str],
+    ) -> bool:
+        """Send a short heartbeat after each scan so you know the bot is alive."""
+        if matches > 0:
+            headline = f"Scan complete — sent **{matches}** client lead(s) to Discord"
+            color = STATUS_HIT_COLOR
+        else:
+            headline = "Scan complete — no new client posts this round (radar is running)"
+            color = STATUS_OK_COLOR
+
+        subs_preview = ", ".join(f"r/{s}" for s in subreddits[:6])
+        if len(subreddits) > 6:
+            subs_preview += f" +{len(subreddits) - 6} more"
+
+        embed = {
+            "title": "Client Radar status",
+            "description": headline,
+            "color": color,
+            "fields": [
+                {"name": "Posts fetched", "value": str(fetched), "inline": True},
+                {"name": "New checked", "value": str(new_checked), "inline": True},
+                {"name": "Matches", "value": str(matches), "inline": True},
+                {"name": "Skipped", "value": str(skipped), "inline": True},
+                {"name": "Already known", "value": str(already_seen), "inline": True},
+                {"name": "Subreddits", "value": subs_preview or "—", "inline": False},
+            ],
+            "footer": {"text": "Reddit Client Radar • heartbeat"},
+        }
+
+        try:
+            response = requests.post(
+                self.webhook_url,
+                json={"embeds": [embed]},
+                timeout=15,
+            )
+            if response.status_code in (200, 204):
+                return True
+            print(
+                f"[discord] Status webhook returned {response.status_code}: "
+                f"{response.text[:200]}"
+            )
+            return False
+        except requests.RequestException as exc:
+            print(f"[discord] Failed to send status: {exc}")
             return False
